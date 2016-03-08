@@ -1,0 +1,64 @@
+﻿@{
+    Layout = "";
+}
+@model ConfigurationModel
+@using Nop.Plugin.Payments.PayPoint.Models;
+@using Nop.Web.Framework;
+@using (Html.BeginForm())
+{
+    @Html.AntiForgeryToken()
+    <table class="adminContent">
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.GatewayUrl):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.GatewayUrl)
+                @Html.ValidationMessageFor(model => model.GatewayUrl)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.MerchantId):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.MerchantId)
+                @Html.ValidationMessageFor(model => model.MerchantId)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.RemotePassword):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.RemotePassword)
+                @Html.ValidationMessageFor(model => model.RemotePassword)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.DigestKey):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.DigestKey)
+                @Html.ValidationMessageFor(model => model.DigestKey)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.AdditionalFee):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.AdditionalFee)
+                @Html.ValidationMessageFor(model => model.AdditionalFee)
+            </td>
+        </tr>
+        <tr>
+            <td colspan="2">
+                <button type="submit" name="save" value="save" class="k-button">
+                    Save</button>
+            </td>
+        </tr>
+    </table>
+    
+}
