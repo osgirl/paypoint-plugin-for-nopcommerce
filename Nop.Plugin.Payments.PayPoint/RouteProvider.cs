@@ -8,19 +8,16 @@ namespace Nop.Plugin.Payments.PayPoint
     {
         public void RegisterRoutes(RouteCollection routes)
         {
-            //Return
-            routes.MapRoute("Plugin.Payments.PayPoint.Return",
-                 "Plugins/PaymentPayPoint/Return",
-                 new { controller = "PaymentPayPoint", action = "Return" },
+            routes.MapRoute("Plugin.Payments.PayPoint.Callback",
+                 "Plugins/PaymentPayPoint/Callback",
+                 new { controller = "PaymentPayPoint", action = "Callback" },
                  new[] { "Nop.Plugin.Payments.PayPoint.Controllers" }
             );
         }
+
         public int Priority
         {
-            get
-            {
-                return 0;
-            }
+            get { return 0; }
         }
     }
 }

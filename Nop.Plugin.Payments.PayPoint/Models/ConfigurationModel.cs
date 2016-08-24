@@ -1,24 +1,32 @@
-﻿using System.ComponentModel;
-using Nop.Web.Framework;
+﻿using Nop.Web.Framework;
 using Nop.Web.Framework.Mvc;
 
 namespace Nop.Plugin.Payments.PayPoint.Models
 {
     public class ConfigurationModel : BaseNopModel
     {
-        [NopResourceDisplayName("Plugins.Payments.PayPoint.GatewayUrl")]
-        public string GatewayUrl { get; set; }
+        public int ActiveStoreScopeConfiguration { get; set; }
 
-        [NopResourceDisplayName("Plugins.Payments.PayPoint.MerchantId")]
-        public string MerchantId { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.ApiUsername")]
+        public string ApiUsername { get; set; }
 
-        [NopResourceDisplayName("Plugins.Payments.PayPoint.RemotePassword")]
-        public string RemotePassword { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.ApiPassword")]
+        public string ApiPassword { get; set; }
 
-        [NopResourceDisplayName("Plugins.Payments.PayPoint.DigestKey")]
-        public string DigestKey { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.InstallationId")]
+        public string InstallationId { get; set; }
+        public bool InstallationId_OverrideForStore { get; set; }
 
-        [NopResourceDisplayName("Plugins.Payments.PayPoint.AdditionalFee")]
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.UseSandbox")]
+        public bool UseSandbox { get; set; }
+        public bool UseSandbox_OverrideForStore { get; set; }
+
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.AdditionalFee")]
         public decimal AdditionalFee { get; set; }
+        public bool AdditionalFee_OverrideForStore { get; set; }
+
+        [NopResourceDisplayName("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage")]
+        public bool AdditionalFeePercentage { get; set; }
+        public bool AdditionalFeePercentage_OverrideForStore { get; set; }
     }
 }

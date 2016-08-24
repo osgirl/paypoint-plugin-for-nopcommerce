@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Text;
+using System.Web;
 using System.Web.Routing;
+using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Directory;
 using Nop.Core.Domain.Orders;
@@ -11,8 +15,9 @@ using Nop.Plugin.Payments.PayPoint.Controllers;
 using Nop.Services.Configuration;
 using Nop.Services.Directory;
 using Nop.Services.Localization;
+using Nop.Services.Logging;
+using Nop.Services.Orders;
 using Nop.Services.Payments;
-using Nop.Web.Framework;
 
 namespace Nop.Plugin.Payments.PayPoint
 {
@@ -23,29 +28,86 @@ namespace Nop.Plugin.Payments.PayPoint
     {
         #region Fields
 
-        private readonly PayPointPaymentSettings _payPointPaymentSettings;
-        private readonly ICurrencyService _currencyService;
         private readonly CurrencySettings _currencySettings;
+        private readonly HttpContextBase _httpContext;
+        private readonly ICurrencyService _currencyService;
+        private readonly ILogger _logger;
+        private readonly IOrderTotalCalculationService _orderTotalCalculationService;
         private readonly ISettingService _settingService;
         private readonly IWebHelper _webHelper;
+        private readonly IWorkContext _workContext;
+        private readonly PayPointPaymentSettings _payPointPaymentSettings;
 
         #endregion
 
         #region Ctor
 
-        public PayPointPaymentProcessor(PayPointPaymentSettings payPointPaymentSettings,
-            ICurrencyService currencyService, CurrencySettings currencySettings,
-            ISettingService settingService, IWebHelper webHelper)
+        public PayPointPaymentProcessor(CurrencySettings currencySettings,
+            HttpContextBase httpContext,
+            ICurrencyService currencyService,
+            ILogger logger,
+            IOrderTotalCalculationService orderTotalCalculationService,
+            ISettingService settingService,
+            IWebHelper webHelper,
+            IWorkContext workContext,
+            PayPointPaymentSettings payPointPaymentSettings)
         {
-            this._payPointPaymentSettings = payPointPaymentSettings;
-            this._currencyService = currencyService;
             this._currencySettings = currencySettings;
+            this._httpContext = httpContext;
+            this._currencyService = currencyService;
+            this._logger = logger;
+            this._orderTotalCalculationService = orderTotalCalculationService;
             this._settingService = settingService;
             this._webHelper = webHelper;
+            this._workContext = workContext;
+            this._payPointPaymentSettings = payPointPaymentSettings;                        
         }
 
         #endregion
-        
+
+        #region Utilities
+
+        /// <summary>
+        /// Post request to PayPoint API
+        /// </summary>
+        /// <param name="payPointPayment">PayPoint payment information</param>
+        /// <returns>PayPoint payment response</returns>
+        protected PayPointPaymentResponse PostRequest(PayPointPayment payPointPayment)
+        {
+            var postData = Encoding.Default.GetBytes(JsonConvert.SerializeObject(payPointPayment));
+            var serviceUrl = _payPointPaymentSettings.UseSandbox ? "https://hosted.mite.paypoint.net" : "https://hosted.paypoint.net";
+            var login = string.Format("{0}:{1}", _payPointPaymentSettings.ApiUsername, _payPointPaymentSettings.ApiPassword);
+            var authorization = Convert.ToBase64String(Encoding.Default.GetBytes(login));
+            var request = (HttpWebRequest)WebRequest.Create(string.Format("{0}/hosted/rest/sessions/{1}/payments", serviceUrl, _payPointPaymentSettings.InstallationId));
+            request.Headers.Add(HttpRequestHeader.Authorization, string.Format("Basic {0}", authorization));
+            request.Method = "POST";
+            request.Accept = "application/json";
+            request.ContentType = "application/json";
+            request.ContentLength = postData.Length;
+            try
+            {
+                using (var stream = request.GetRequestStream())
+                {
+                    stream.Write(postData, 0, postData.Length);
+                }
+                var httpResponse = (HttpWebResponse)request.GetResponse();
+                using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                {
+                    return JsonConvert.DeserializeObject<PayPointPaymentResponse>(streamReader.ReadToEnd());
+                }
+            }
+            catch (WebException ex)
+            {
+                var httpResponse = (HttpWebResponse)ex.Response;
+                using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                {
+                    return JsonConvert.DeserializeObject<PayPointPaymentResponse>(streamReader.ReadToEnd());
+                }
+            }
+        }
+
+        #endregion
+
         #region Methods
 
         /// <summary>
@@ -55,9 +117,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// <returns>Process payment result</returns>
         public ProcessPaymentResult ProcessPayment(ProcessPaymentRequest processPaymentRequest)
         {
-            var result = new ProcessPaymentResult();
-            result.NewPaymentStatus = PaymentStatus.Pending;
-            return result;
+            return new ProcessPaymentResult();
         }
 
         /// <summary>
@@ -66,19 +126,44 @@ namespace Nop.Plugin.Payments.PayPoint
         /// <param name="postProcessPaymentRequest">Payment info required for an order processing</param>
         public void PostProcessPayment(PostProcessPaymentRequest postProcessPaymentRequest)
         {
-            var gatewayUrl = new Uri(_payPointPaymentSettings.GatewayUrl);
-            var post = new RemotePost();
-            post.FormName = "PayPoint";
-            post.Url = gatewayUrl.ToString();
-            post.Add("merchant", _payPointPaymentSettings.MerchantId);
-            post.Add("trans_id", postProcessPaymentRequest.Order.Id.ToString());
-            post.Add("currency", _currencyService.GetCurrencyById(_currencySettings.PrimaryStoreCurrencyId).CurrencyCode);
-            post.Add("amount", String.Format(CultureInfo.InvariantCulture, "{0:0.00}", postProcessPaymentRequest.Order.OrderTotal));
-            post.Add("callback", String.Format("{0}Plugins/PaymentPayPoint/Return", _webHelper.GetStoreLocation(false)));
-            post.Add("digest", PayPointHelper.CalcRequestSign(post, _payPointPaymentSettings.RemotePassword));
-            //uncomment the line below if you want to test the system
-            //post.Add("test_status", "true");
-            post.Post();
+            var storeLocation = _webHelper.GetStoreLocation();
+
+            //create post data
+            var payPointPayment = new PayPointPayment
+            {
+                Locale = _workContext.WorkingLanguage.UniqueSeoCode,
+                Customer = new PayPointPaymentCustomer { Registered = false },
+                Transaction = new PayPointPaymentTransaction
+                {
+                    MerchantReference = postProcessPaymentRequest.Order.OrderGuid.ToString(),
+                    Money = new PayPointPaymentMoney
+                    {
+                        Currency = _currencyService.GetCurrencyById(_currencySettings.PrimaryStoreCurrencyId).CurrencyCode,
+                        Amount = new PayPointPaymentAmount { Fixed = Math.Round(postProcessPaymentRequest.Order.OrderTotal, 2) }
+                    },
+                    Description = string.Format("Order #{0}", postProcessPaymentRequest.Order.Id)
+                },
+                Session = new PayPointPaymentSession
+                {
+                    ReturnUrl = new PayPointPaymentUrl { Url = string.Format("{0}checkout/completed/{1}", storeLocation, postProcessPaymentRequest.Order.Id) },
+                    CancelUrl = new PayPointPaymentUrl { Url = string.Format("{0}orderdetails/{1}", storeLocation, postProcessPaymentRequest.Order.Id) },
+                    TransactionNotification = new PayPointPaymentCallbackUrl
+                    {
+                        Format = PayPointPaymentFormat.REST_JSON,
+                        Url = string.Format("{0}Plugins/PaymentPayPoint/Callback", storeLocation)
+                    }
+                }
+            };
+
+            //post request to API
+            var payPointPaymentResponse = PostRequest(payPointPayment);
+
+            //redirect to hosted payment service
+            if (payPointPaymentResponse.Status == PayPointStatus.SUCCESS)
+                _httpContext.Response.Redirect(payPointPaymentResponse.RedirectUrl);
+            else
+                _logger.Error(string.Format("PayPoint transaction failed. {0} - {1}", payPointPaymentResponse.ReasonCode, payPointPaymentResponse.ReasonMessage));
+
         }
 
         /// <summary>
@@ -101,7 +186,10 @@ namespace Nop.Plugin.Payments.PayPoint
         /// <returns>Additional handling fee</returns>
         public decimal GetAdditionalHandlingFee(IList<ShoppingCartItem> cart)
         {
-            return _payPointPaymentSettings.AdditionalFee;
+            var result = this.CalculateAdditionalFee(_orderTotalCalculationService, cart,
+                _payPointPaymentSettings.AdditionalFee, _payPointPaymentSettings.AdditionalFeePercentage);
+
+            return result;
         }
 
         /// <summary>
@@ -214,57 +302,70 @@ namespace Nop.Plugin.Payments.PayPoint
             routeValues = new RouteValueDictionary() { { "Namespaces", "Nop.Plugin.Payments.PayPoint.Controllers" }, { "area", null } };
         }
 
+        /// <summary>
+        /// Get type of the controller
+        /// </summary>
+        /// <returns>Controller type</returns>
         public Type GetControllerType()
         {
             return typeof(PaymentPayPointController);
         }
 
+        /// <summary>
+        /// Install the plugin
+        /// </summary>
         public override void Install()
         {
-            var settings = new PayPointPaymentSettings()
+            //settings
+            _settingService.SaveSetting(new PayPointPaymentSettings
             {
-                GatewayUrl = "https://www.secpay.com/java-bin/ValCard",
-                MerchantId = "",
-                RemotePassword = "",
-                DigestKey = "",
-                AdditionalFee = 0,
-            };
-            _settingService.SaveSetting(settings);
+                UseSandbox = true
+            });
 
             //locales
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee", "Additional fee");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword", "API password");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint", "Specify API password.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername", "API username");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint", "Specify API username.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId", "Installation ID");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint", "Specify installation ID.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox", "Use Sandbox");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip", "You will be redirected to PayPoint site to complete the order.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.GatewayUrl", "Gateway URL");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.GatewayUrl.Hint", "Enter gateway URL.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.MerchantId", "Merchant ID");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.MerchantId.Hint", "Enter merchant ID.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RemotePassword", "Remote password");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RemotePassword.Hint", "Enter remote password.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.DigestKey", "Digest key");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.DigestKey.Hint", "Enter figest key.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.AdditionalFee", "Additional fee");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
             
             base.Install();
         }
 
+        /// <summary>
+        /// Uninstall the plugin
+        /// </summary>
         public override void Uninstall()
         {
+            //settings
+            _settingService.DeleteSetting<PayPointPaymentSettings>();
+
             //locales
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint");
             this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.GatewayUrl");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.GatewayUrl.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.MerchantId");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.MerchantId.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RemotePassword");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RemotePassword.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.DigestKey");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.DigestKey.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.AdditionalFee");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.AdditionalFee.Hint");
-            
 
             base.Uninstall();
         }
+        
         #endregion
 
         #region Properies
@@ -274,10 +375,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public bool SupportCapture
         {
-            get
-            {
-                return false;
-            }
+            get { return false; }
         }
 
         /// <summary>
@@ -285,10 +383,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public bool SupportPartiallyRefund
         {
-            get
-            {
-                return false;
-            }
+            get { return false; }
         }
 
         /// <summary>
@@ -296,10 +391,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public bool SupportRefund
         {
-            get
-            {
-                return false;
-            }
+            get { return false; }
         }
 
         /// <summary>
@@ -307,10 +399,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public bool SupportVoid
         {
-            get
-            {
-                return false;
-            }
+            get { return false; }
         }
 
         /// <summary>
@@ -318,10 +407,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public RecurringPaymentType RecurringPaymentType
         {
-            get
-            {
-                return RecurringPaymentType.NotSupported;
-            }
+            get { return RecurringPaymentType.NotSupported; }
         }
 
         /// <summary>
@@ -329,10 +415,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// </summary>
         public PaymentMethodType PaymentMethodType
         {
-            get
-            {
-                return PaymentMethodType.Redirection;
-            }
+            get { return PaymentMethodType.Redirection; }
         }
 
         /// <summary>
