@@ -37,6 +37,7 @@ namespace Nop.Plugin.Payments.PayPoint
         private readonly IWebHelper _webHelper;
         private readonly IWorkContext _workContext;
         private readonly PayPointPaymentSettings _payPointPaymentSettings;
+        private readonly ILocalizationService _localizationService;
 
         #endregion
 
@@ -50,7 +51,8 @@ namespace Nop.Plugin.Payments.PayPoint
             ISettingService settingService,
             IWebHelper webHelper,
             IWorkContext workContext,
-            PayPointPaymentSettings payPointPaymentSettings)
+            PayPointPaymentSettings payPointPaymentSettings,
+            ILocalizationService localizationService)
         {
             this._currencySettings = currencySettings;
             this._httpContext = httpContext;
@@ -60,7 +62,8 @@ namespace Nop.Plugin.Payments.PayPoint
             this._settingService = settingService;
             this._webHelper = webHelper;
             this._workContext = workContext;
-            this._payPointPaymentSettings = payPointPaymentSettings;                        
+            this._payPointPaymentSettings = payPointPaymentSettings;
+            this._localizationService = localizationService;
         }
 
         #endregion
@@ -75,7 +78,7 @@ namespace Nop.Plugin.Payments.PayPoint
         protected PayPointPaymentResponse PostRequest(PayPointPayment payPointPayment)
         {
             var postData = Encoding.Default.GetBytes(JsonConvert.SerializeObject(payPointPayment));
-            var serviceUrl = _payPointPaymentSettings.UseSandbox ? "https://hosted.mite.paypoint.net" : "https://hosted.paypoint.net";
+            var serviceUrl = _payPointPaymentSettings.UseSandbox ? "https://api.mite.pay360.com" : "https://api.pay360.com";
             var login = string.Format("{0}:{1}", _payPointPaymentSettings.ApiUsername, _payPointPaymentSettings.ApiPassword);
             var authorization = Convert.ToBase64String(Encoding.Default.GetBytes(login));
             var request = (HttpWebRequest)WebRequest.Create(string.Format("{0}/hosted/rest/sessions/{1}/payments", serviceUrl, _payPointPaymentSettings.InstallationId));
@@ -336,6 +339,7 @@ namespace Nop.Plugin.Payments.PayPoint
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox", "Use Sandbox");
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip", "You will be redirected to PayPoint site to complete the order.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription", "You will be redirected to PayPoint site to complete the order.");
             
             base.Install();
         }
@@ -362,6 +366,7 @@ namespace Nop.Plugin.Payments.PayPoint
             this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox");
             this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint");
             this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription");
 
             base.Uninstall();
         }
@@ -424,6 +429,14 @@ namespace Nop.Plugin.Payments.PayPoint
         public bool SkipPaymentInfo
         {
             get { return false; }
+        }
+
+        /// <summary>
+        /// Gets a payment method description that will be displayed on checkout pages in the public store
+        /// </summary>
+        public string PaymentMethodDescription
+        {
+            get { return _localizationService.GetResource("Plugins.Payments.PayPoint.PaymentMethodDescription"); }
         }
 
         #endregion

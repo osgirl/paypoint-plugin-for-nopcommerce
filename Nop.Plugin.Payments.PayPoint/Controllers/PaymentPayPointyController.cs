@@ -80,7 +80,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
                 model.AdditionalFeePercentage_OverrideForStore = _settingService.SettingExists(payPointPaymentSettings, x => x.AdditionalFeePercentage, storeScope);
             }
 
-            return View("~/Plugins/Payments.PayPoint/Views/PaymentPayPoint/Configure.cshtml", model);
+            return View("~/Plugins/Payments.PayPoint/Views/Configure.cshtml", model);
         }
 
         [HttpPost]
@@ -124,7 +124,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
         [ChildActionOnly]
         public ActionResult PaymentInfo()
         {
-            return View("~/Plugins/Payments.PayPoint/Views/PaymentPayPoint/PaymentInfo.cshtml");
+            return View("~/Plugins/Payments.PayPoint/Views/PaymentInfo.cshtml");
         }
 
         [NonAction]
