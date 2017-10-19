@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
-using System.Web;
-using System.Web.Routing;
+using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Directory;
@@ -29,7 +28,6 @@ namespace Nop.Plugin.Payments.PayPoint
         #region Fields
 
         private readonly CurrencySettings _currencySettings;
-        private readonly HttpContextBase _httpContext;
         private readonly ICurrencyService _currencyService;
         private readonly ILogger _logger;
         private readonly IOrderTotalCalculationService _orderTotalCalculationService;
@@ -38,13 +36,13 @@ namespace Nop.Plugin.Payments.PayPoint
         private readonly IWorkContext _workContext;
         private readonly PayPointPaymentSettings _payPointPaymentSettings;
         private readonly ILocalizationService _localizationService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
         #endregion
 
         #region Ctor
 
         public PayPointPaymentProcessor(CurrencySettings currencySettings,
-            HttpContextBase httpContext,
             ICurrencyService currencyService,
             ILogger logger,
             IOrderTotalCalculationService orderTotalCalculationService,
@@ -52,10 +50,10 @@ namespace Nop.Plugin.Payments.PayPoint
             IWebHelper webHelper,
             IWorkContext workContext,
             PayPointPaymentSettings payPointPaymentSettings,
-            ILocalizationService localizationService)
+            ILocalizationService localizationService,
+            IHttpContextAccessor httpContextAccessor)
         {
             this._currencySettings = currencySettings;
-            this._httpContext = httpContext;
             this._currencyService = currencyService;
             this._logger = logger;
             this._orderTotalCalculationService = orderTotalCalculationService;
@@ -64,6 +62,7 @@ namespace Nop.Plugin.Payments.PayPoint
             this._workContext = workContext;
             this._payPointPaymentSettings = payPointPaymentSettings;
             this._localizationService = localizationService;
+            this._httpContextAccessor = httpContextAccessor;
         }
 
         #endregion
@@ -79,10 +78,10 @@ namespace Nop.Plugin.Payments.PayPoint
         {
             var postData = Encoding.Default.GetBytes(JsonConvert.SerializeObject(payPointPayment));
             var serviceUrl = _payPointPaymentSettings.UseSandbox ? "https://api.mite.pay360.com" : "https://api.pay360.com";
-            var login = string.Format("{0}:{1}", _payPointPaymentSettings.ApiUsername, _payPointPaymentSettings.ApiPassword);
+            var login = $"{_payPointPaymentSettings.ApiUsername}:{_payPointPaymentSettings.ApiPassword}";
             var authorization = Convert.ToBase64String(Encoding.Default.GetBytes(login));
-            var request = (HttpWebRequest)WebRequest.Create(string.Format("{0}/hosted/rest/sessions/{1}/payments", serviceUrl, _payPointPaymentSettings.InstallationId));
-            request.Headers.Add(HttpRequestHeader.Authorization, string.Format("Basic {0}", authorization));
+            var request = (HttpWebRequest)WebRequest.Create($"{serviceUrl}/hosted/rest/sessions/{_payPointPaymentSettings.InstallationId}/payments");
+            request.Headers.Add(HttpRequestHeader.Authorization, $"Basic {authorization}");
             request.Method = "POST";
             request.Accept = "application/json";
             request.ContentType = "application/json";
@@ -148,12 +147,14 @@ namespace Nop.Plugin.Payments.PayPoint
                 },
                 Session = new PayPointPaymentSession
                 {
-                    ReturnUrl = new PayPointPaymentUrl { Url = string.Format("{0}checkout/completed/{1}", storeLocation, postProcessPaymentRequest.Order.Id) },
-                    CancelUrl = new PayPointPaymentUrl { Url = string.Format("{0}orderdetails/{1}", storeLocation, postProcessPaymentRequest.Order.Id) },
+                    ReturnUrl = new PayPointPaymentUrl { Url = $"{storeLocation}checkout/completed/{postProcessPaymentRequest.Order.Id}"
+                    },
+                    CancelUrl = new PayPointPaymentUrl { Url = $"{storeLocation}orderdetails/{postProcessPaymentRequest.Order.Id}"
+                    },
                     TransactionNotification = new PayPointPaymentCallbackUrl
                     {
                         Format = PayPointPaymentFormat.REST_JSON,
-                        Url = string.Format("{0}Plugins/PaymentPayPoint/Callback", storeLocation)
+                        Url = $"{storeLocation}Plugins/PaymentPayPoint/Callback"
                     }
                 }
             };
@@ -163,9 +164,9 @@ namespace Nop.Plugin.Payments.PayPoint
 
             //redirect to hosted payment service
             if (payPointPaymentResponse.Status == PayPointStatus.SUCCESS)
-                _httpContext.Response.Redirect(payPointPaymentResponse.RedirectUrl);
+                _httpContextAccessor.HttpContext.Response.Redirect(payPointPaymentResponse.RedirectUrl);
             else
-                _logger.Error(string.Format("PayPoint transaction failed. {0} - {1}", payPointPaymentResponse.ReasonCode, payPointPaymentResponse.ReasonMessage));
+                _logger.Error($"PayPoint transaction failed. {payPointPaymentResponse.ReasonCode} - {payPointPaymentResponse.ReasonMessage}");
 
         }
 
@@ -263,7 +264,7 @@ namespace Nop.Plugin.Payments.PayPoint
         public bool CanRePostProcessPayment(Order order)
         {
             if (order == null)
-                throw new ArgumentNullException("order");
+                throw new ArgumentNullException(nameof(order));
 
             //PayPoint is the redirection payment method
             //It also validates whether order is also paid (after redirection) so customers will not be able to pay twice
@@ -278,31 +279,25 @@ namespace Nop.Plugin.Payments.PayPoint
 
             return true;
         }
-
-        /// <summary>
-        /// Gets a route for provider configuration
-        /// </summary>
-        /// <param name="actionName">Action name</param>
-        /// <param name="controllerName">Controller name</param>
-        /// <param name="routeValues">Route values</param>
-        public void GetConfigurationRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
+        
+        public IList<string> ValidatePaymentForm(IFormCollection form)
         {
-            actionName = "Configure";
-            controllerName = "PaymentPayPoint";
-            routeValues = new RouteValueDictionary() { { "Namespaces", "Nop.Plugin.Payments.PayPoint.Controllers" }, { "area", null } };
+            return new List<string>();
         }
 
-        /// <summary>
-        /// Gets a route for payment info
-        /// </summary>
-        /// <param name="actionName">Action name</param>
-        /// <param name="controllerName">Controller name</param>
-        /// <param name="routeValues">Route values</param>
-        public void GetPaymentInfoRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
+        public ProcessPaymentRequest GetPaymentInfo(IFormCollection form)
         {
-            actionName = "PaymentInfo";
-            controllerName = "PaymentPayPoint";
-            routeValues = new RouteValueDictionary() { { "Namespaces", "Nop.Plugin.Payments.PayPoint.Controllers" }, { "area", null } };
+            return new ProcessPaymentRequest();
+        }
+
+        public void GetPublicViewComponent(out string viewComponentName)
+        {
+            viewComponentName = "PaymentPayPoint";
+        }
+
+        public override string GetConfigurationPageUrl()
+        {
+            return $"{_webHelper.GetStoreLocation()}Admin/PaymentPayPoint/Configure";
         }
 
         /// <summary>

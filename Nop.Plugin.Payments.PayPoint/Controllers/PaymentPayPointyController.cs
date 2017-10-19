@@ -1,8 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Plugin.Payments.PayPoint.Models;
@@ -10,12 +9,15 @@ using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Orders;
-using Nop.Services.Payments;
 using Nop.Services.Stores;
+using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
+using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Payments.PayPoint.Controllers
 {
+    [AuthorizeAdmin]
+    [Area(AreaNames.Admin)]
     public class PaymentPayPointController : BasePaymentController
     {
         #region Fields
@@ -52,9 +54,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
         #endregion
 
         #region Methods
-
-        [AdminAuthorize]
-        [ChildActionOnly]
+        
         public ActionResult Configure()
         {
             //load settings for a chosen store scope
@@ -84,9 +84,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
         }
 
         [HttpPost]
-        [AdminAuthorize]
-        [ChildActionOnly]
-        public ActionResult Configure(ConfigurationModel model)
+        public IActionResult Configure(ConfigurationModel model)
         {
             if (!ModelState.IsValid)
                 return Configure();
@@ -120,32 +118,13 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
 
             return Configure();
         }
-
-        [ChildActionOnly]
-        public ActionResult PaymentInfo()
-        {
-            return View("~/Plugins/Payments.PayPoint/Views/PaymentInfo.cshtml");
-        }
-
-        [NonAction]
-        public override IList<string> ValidatePaymentForm(FormCollection form)
-        {
-            return new List<string>();
-        }
-
-        [NonAction]
-        public override ProcessPaymentRequest GetPaymentInfo(FormCollection form)
-        {
-            return new ProcessPaymentRequest();
-        }
-
-        [ValidateInput(false)]
-        public ActionResult Callback()
+        
+        public IActionResult Callback()
         {
             PayPointCallback payPointPaymentCallback = null;
             try
             {
-                using (var streamReader = new StreamReader(HttpContext.Request.InputStream))
+                using (var streamReader = new StreamReader(HttpContext.Request.Body))
                 {
                     payPointPaymentCallback = JsonConvert.DeserializeObject<PayPointCallback>(streamReader.ReadToEnd());
                 }
@@ -153,25 +132,24 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
             catch (Exception ex)
             {
                 _logger.Error("PayPoint callback error", ex);
-                return new HttpStatusCodeResult(HttpStatusCode.OK);
+                return new StatusCodeResult((int)HttpStatusCode.OK);
             }
 
             if (payPointPaymentCallback.Transaction.Status != PayPointStatus.SUCCESS)
             {
-                _logger.Error(string.Format("PayPoint callback error. Transaction is {0}", payPointPaymentCallback.Transaction.Status));
-                return new HttpStatusCodeResult(HttpStatusCode.OK);
+                _logger.Error($"PayPoint callback error. Transaction is {payPointPaymentCallback.Transaction.Status}");
+                return new StatusCodeResult((int)HttpStatusCode.OK);
             }
 
-            Guid orderGuid;
-            if (!Guid.TryParse(payPointPaymentCallback.Transaction.MerchantRef, out orderGuid))
+            if (!Guid.TryParse(payPointPaymentCallback.Transaction.MerchantRef, out Guid orderGuid))
             {
                 _logger.Error("PayPoint callback error. Data is not valid");
-                return new HttpStatusCodeResult(HttpStatusCode.OK);
+                return new StatusCodeResult((int)HttpStatusCode.OK);
             }
 
             var order = _orderService.GetOrderByGuid(orderGuid);
             if (order == null)
-                return new HttpStatusCodeResult(HttpStatusCode.OK);
+                return new StatusCodeResult((int)HttpStatusCode.OK);
 
             //paid order
             if (_orderProcessingService.CanMarkOrderAsPaid(order))
@@ -181,7 +159,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
                 _orderProcessingService.MarkOrderAsPaid(order);
             }
 
-            return new HttpStatusCodeResult(HttpStatusCode.OK);
+            return new StatusCodeResult((int)HttpStatusCode.OK);
         }
 
         #endregion

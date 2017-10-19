@@ -1,18 +1,15 @@
-﻿using System.Web.Mvc;
-using System.Web.Routing;
-using Nop.Web.Framework.Mvc.Routes;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
+using Nop.Web.Framework.Mvc.Routing;
 
 namespace Nop.Plugin.Payments.PayPoint
 {
     public partial class RouteProvider : IRouteProvider
     {
-        public void RegisterRoutes(RouteCollection routes)
+        public void RegisterRoutes(IRouteBuilder routeBuilder)
         {
-            routes.MapRoute("Plugin.Payments.PayPoint.Callback",
-                 "Plugins/PaymentPayPoint/Callback",
-                 new { controller = "PaymentPayPoint", action = "Callback" },
-                 new[] { "Nop.Plugin.Payments.PayPoint.Controllers" }
-            );
+            routeBuilder.MapRoute("Plugin.Payments.PayPoint.Callback", "Plugins/PaymentPayPoint/Callback",
+                new {controller = "PaymentPayPoint", action = "Callback"});
         }
 
         public int Priority
