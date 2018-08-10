@@ -9,15 +9,13 @@ using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Orders;
-using Nop.Services.Stores;
 using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
 using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Payments.PayPoint.Controllers
 {
-    [AuthorizeAdmin]
-    [Area(AreaNames.Admin)]
+    
     public class PaymentPayPointController : BasePaymentController
     {
         #region Fields
@@ -27,8 +25,7 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
         private readonly IOrderProcessingService _orderProcessingService;
         private readonly IOrderService _orderService;
         private readonly ISettingService _settingService;
-        private readonly IStoreService _storeService;
-        private readonly IWorkContext _workContext;
+        private readonly IStoreContext _storeContext;
 
         #endregion
 
@@ -39,26 +36,27 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
             IOrderProcessingService orderProcessingService,
             IOrderService orderService,
             ISettingService settingService,
-            IStoreService storeService,
-            IWorkContext workContext)
+            IStoreContext storeContext)
         {
             this._localizationService = localizationService;
             this._logger = logger;
             this._orderProcessingService = orderProcessingService;
             this._orderService = orderService;
             this._settingService = settingService;
-            this._storeService = storeService;
-            this._workContext = workContext;
+            this._storeContext = storeContext;
         }
 
         #endregion
 
         #region Methods
-        
+
+        [AuthorizeAdmin]
+        [AdminAntiForgery]
+        [Area(AreaNames.Admin)]
         public ActionResult Configure()
         {
             //load settings for a chosen store scope
-            var storeScope = GetActiveStoreScopeConfiguration(_storeService, _workContext);
+            var storeScope = _storeContext.ActiveStoreScopeConfiguration;
             var payPointPaymentSettings = _settingService.LoadSetting<PayPointPaymentSettings>(storeScope);
 
             var model = new ConfigurationModel
@@ -84,13 +82,17 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
         }
 
         [HttpPost]
+        [AuthorizeAdmin]
+        [AdminAntiForgery]
+        [Area(AreaNames.Admin)]
         public IActionResult Configure(ConfigurationModel model)
         {
             if (!ModelState.IsValid)
                 return Configure();
 
             //load settings for a chosen store scope
-            var storeScope = GetActiveStoreScopeConfiguration(_storeService, _workContext);
+            //var storeScope = GetActiveStoreScopeConfiguration(_storeService, _workContext);
+            var storeScope = _storeContext.ActiveStoreScopeConfiguration;
             var payPointPaymentSettings = _settingService.LoadSetting<PayPointPaymentSettings>(storeScope);
 
             //save settings
@@ -118,9 +120,10 @@ namespace Nop.Plugin.Payments.PayPoint.Controllers
 
             return Configure();
         }
-        
-        public IActionResult Callback()
+
+        public IActionResult Callback(object obj)
         {
+
             PayPointCallback payPointPaymentCallback = null;
             try
             {

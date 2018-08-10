@@ -10,12 +10,10 @@ using Nop.Core.Domain.Directory;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Payments;
 using Nop.Core.Plugins;
-using Nop.Plugin.Payments.PayPoint.Controllers;
 using Nop.Services.Configuration;
 using Nop.Services.Directory;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
-using Nop.Services.Orders;
 using Nop.Services.Payments;
 
 namespace Nop.Plugin.Payments.PayPoint
@@ -29,14 +27,14 @@ namespace Nop.Plugin.Payments.PayPoint
 
         private readonly CurrencySettings _currencySettings;
         private readonly ICurrencyService _currencyService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ILocalizationService _localizationService;
         private readonly ILogger _logger;
-        private readonly IOrderTotalCalculationService _orderTotalCalculationService;
+        private readonly IPaymentService _paymentService;
         private readonly ISettingService _settingService;
         private readonly IWebHelper _webHelper;
         private readonly IWorkContext _workContext;
         private readonly PayPointPaymentSettings _payPointPaymentSettings;
-        private readonly ILocalizationService _localizationService;
-        private readonly IHttpContextAccessor _httpContextAccessor;
 
         #endregion
 
@@ -44,25 +42,25 @@ namespace Nop.Plugin.Payments.PayPoint
 
         public PayPointPaymentProcessor(CurrencySettings currencySettings,
             ICurrencyService currencyService,
+            IHttpContextAccessor httpContextAccessor,
+            ILocalizationService localizationService,
             ILogger logger,
-            IOrderTotalCalculationService orderTotalCalculationService,
+            IPaymentService paymentService,
             ISettingService settingService,
             IWebHelper webHelper,
             IWorkContext workContext,
-            PayPointPaymentSettings payPointPaymentSettings,
-            ILocalizationService localizationService,
-            IHttpContextAccessor httpContextAccessor)
+            PayPointPaymentSettings payPointPaymentSettings)
         {
             this._currencySettings = currencySettings;
             this._currencyService = currencyService;
+            this._httpContextAccessor = httpContextAccessor;
+            this._localizationService = localizationService;
             this._logger = logger;
-            this._orderTotalCalculationService = orderTotalCalculationService;
+            this._paymentService = paymentService;
             this._settingService = settingService;
             this._webHelper = webHelper;
             this._workContext = workContext;
             this._payPointPaymentSettings = payPointPaymentSettings;
-            this._localizationService = localizationService;
-            this._httpContextAccessor = httpContextAccessor;
         }
 
         #endregion
@@ -95,7 +93,9 @@ namespace Nop.Plugin.Payments.PayPoint
                 var httpResponse = (HttpWebResponse)request.GetResponse();
                 using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
                 {
-                    return JsonConvert.DeserializeObject<PayPointPaymentResponse>(streamReader.ReadToEnd());
+                    var dd = JsonConvert.DeserializeObject<PayPointPaymentResponse>(streamReader.ReadToEnd());
+                    return dd;
+                    //return JsonConvert.DeserializeObject<PayPointPaymentResponse>(streamReader.ReadToEnd());
                 }
             }
             catch (WebException ex)
@@ -158,7 +158,7 @@ namespace Nop.Plugin.Payments.PayPoint
                     }
                 }
             };
-
+                 
             //post request to API
             var payPointPaymentResponse = PostRequest(payPointPayment);
 
@@ -190,7 +190,7 @@ namespace Nop.Plugin.Payments.PayPoint
         /// <returns>Additional handling fee</returns>
         public decimal GetAdditionalHandlingFee(IList<ShoppingCartItem> cart)
         {
-            var result = this.CalculateAdditionalFee(_orderTotalCalculationService, cart,
+            var result = _paymentService.CalculateAdditionalFee(cart,
                 _payPointPaymentSettings.AdditionalFee, _payPointPaymentSettings.AdditionalFeePercentage);
 
             return result;
@@ -290,23 +290,14 @@ namespace Nop.Plugin.Payments.PayPoint
             return new ProcessPaymentRequest();
         }
 
-        public void GetPublicViewComponent(out string viewComponentName)
+        public string GetPublicViewComponentName()
         {
-            viewComponentName = "PaymentPayPoint";
+            return "PaymentPayPoint";
         }
 
         public override string GetConfigurationPageUrl()
         {
             return $"{_webHelper.GetStoreLocation()}Admin/PaymentPayPoint/Configure";
-        }
-
-        /// <summary>
-        /// Get type of the controller
-        /// </summary>
-        /// <returns>Controller type</returns>
-        public Type GetControllerType()
-        {
-            return typeof(PaymentPayPointController);
         }
 
         /// <summary>
@@ -321,20 +312,20 @@ namespace Nop.Plugin.Payments.PayPoint
             });
 
             //locales
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee", "Additional fee");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword", "API password");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint", "Specify API password.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername", "API username");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint", "Specify API username.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId", "Installation ID");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint", "Specify installation ID.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox", "Use Sandbox");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip", "You will be redirected to PayPoint site to complete the order.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription", "You will be redirected to PayPoint site to complete the order.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee", "Additional fee");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword", "API password");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint", "Specify API password.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername", "API username");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint", "Specify API username.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId", "Installation ID");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint", "Specify installation ID.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox", "Use Sandbox");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip", "You will be redirected to PayPoint site to complete the order.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription", "You will be redirected to PayPoint site to complete the order.");
             
             base.Install();
         }
@@ -348,20 +339,20 @@ namespace Nop.Plugin.Payments.PayPoint
             _settingService.DeleteSetting<PayPointPaymentSettings>();
 
             //locales
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFee.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.AdditionalFeePercentage.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiPassword.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.ApiUsername.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.InstallationId.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.Fields.UseSandbox.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.RedirectionTip");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayPoint.PaymentMethodDescription");
 
             base.Uninstall();
         }
